@@ -1,0 +1,65 @@
+image: mcr.microsoft.com/dotnet/sdk:9.0
+
+stages:
+  - build
+  - validate
+  - test
+
+variables:
+  GITLAB_DOCKER_PROXY: gitlab.education.tbank.ru:443/backend-academy-dotnet-2025/lecture-materials/dependency_proxy/containers
+
+
+build:
+  stage: build
+  script:
+    - dotnet build
+  only:
+    - merge_requests
+    - master
+
+linter:
+  stage: validate
+  script:
+    - dotnet format --verify-no-changes
+  only:
+    - merge_requests
+    - master
+
+module_test:
+  stage: test
+  needs:
+    - job: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == "master"
+      when: always
+      allow_failure: false
+    - when: never
+  script:
+    - dotnet test --filter "FullyQualifiedName!~DbTests&FullyQualifiedName!~Valkey"
+
+integration_test:
+  image: docker 
+  stage: test
+  needs: 
+    - job: module_test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == "master"
+      when: always
+      allow_failure: false
+    - when: never
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: 1
+    DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
+  tags:
+    - dind
+  services:
+    - name: docker:29.0.1-dind
+      alias: docker
+  before_script:
+    - echo "$CI_JOB_TOKEN" | docker login gitlab.education.tbank.ru:443 -u gitlab-ci-token --password-stdin
+  script:
+    - echo "Running tests..."
+
+  

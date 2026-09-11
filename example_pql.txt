@@ -1,0 +1,209 @@
+# PromQL запросы для дашбордов LinkTracker Monitoring
+
+================================================================================
+# RED METRICS DASHBOARD
+================================================================================
+
+# 1. Rate (Requests per second)
+# Описание: Количество запросов в секунду, которые обрабатывает приложение
+# Визуализация: Line chart
+rate(http_requests_total{app="$app_name"}[5m])
+
+# 2. Errors (5xx per second)
+# Описание: Количество ошибочных запросов (5xx) в секунду
+# Визуализация: Line chart
+rate(http_requests_total{app="$app_name", status=~"5.."}[5m])
+
+# 3. Duration - p50 (50-й перцентиль)
+# Описание: 50% запросов обрабатываются быстрее этого значения
+# Визуализация: Line chart
+histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{app="$app_name"}[5m]))
+
+# 4. Duration - p95 (95-й перцентиль)
+# Описание: 95% запросов обрабатываются быстрее этого значения
+# Визуализация: Line chart
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{app="$app_name"}[5m]))
+
+# 5. Duration - p99 (99-й перцентиль)
+# Описание: 99% запросов обрабатываются быстрее этого значения
+# Визуализация: Line chart
+histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{app="$app_name"}[5m]))
+
+# 6. Memory Usage - Working Set
+# Описание: Рабочий набор памяти приложения (RAM)
+# Визуализация: Line chart
+process_working_set_bytes{app="$app_name"}
+
+# 7. Memory Usage - Private Memory
+# Описание: Частная память приложения (без общих страниц)
+# Визуализация: Line chart
+process_private_memory_bytes{app="$app_name"}
+
+================================================================================
+# BUSINESS METRICS DASHBOARD
+================================================================================
+
+# 1. Пользовательские сообщения в секунду
+# Описание: Количество пользовательских запросов к приложению в секунду
+# Визуализация: Line chart
+# Лейблы: app (scrapper, bot, ai-agent)
+rate(http_requests_total{app="$app_type"}[5m])
+
+# 2. Активные ссылки в БД по доменам
+# Описание: Количество ссылок в БД, поставленных на мониторинг, с разбивкой по домену
+# Визуализация: Line chart
+# Лейблы: tracked_source (github, stackoverflow)
+links_on_track_total{app="scrapper"}
+
+# 3. Перцентили scrape-операций - p50 (GitHub)
+# Описание: 50% scrape-операций GitHub выполняются быстрее этого значения
+# Визуализация: Line chart
+# Лейблы: scope=external_source, scope_type=github.com
+histogram_quantile(0.50, rate(request_duration_ms_total_bucket{app="scrapper", scope="external_source", scope_type="github.com"}[5m])) * 1000
+
+# 4. Перцентили scrape-операций - p95 (GitHub)
+# Описание: 95% scrape-операций GitHub выполняются быстрее этого значения
+# Визуализация: Line chart
+histogram_quantile(0.95, rate(request_duration_ms_total_bucket{app="scrapper", scope="external_source", scope_type="github.com"}[5m])) * 1000
+
+# 5. Перцентили scrape-операций - p99 (GitHub)
+# Описание: 99% scrape-операций GitHub выполняются быстрее этого значения
+# Визуализация: Line chart
+histogram_quantile(0.99, rate(request_duration_ms_total_bucket{app="scrapper", scope="external_source", scope_type="github.com"}[5m])) * 1000
+
+# 6. Перцентили scrape-операций - p50 (StackOverflow)
+# Описание: 50% scrape-операций StackOverflow выполняются быстрее этого значения
+# Визуализация: Line chart
+# Лейблы: scope=external_source, scope_type=stackoverflow.com
+histogram_quantile(0.50, rate(request_duration_ms_total_bucket{app="scrapper", scope="external_source", scope_type="stackoverflow.com"}[5m])) * 1000
+
+# 7. Перцентили scrape-операций - p95 (StackOverflow)
+# Описание: 95% scrape-операций StackOverflow выполняются быстрее этого значения
+# Визуализация: Line chart
+histogram_quantile(0.95, rate(request_duration_ms_total_bucket{app="scrapper", scope="external_source", scope_type="stackoverflow.com"}[5m])) * 1000
+
+# 8. Перцентили scrape-операций - p99 (StackOverflow)
+# Описание: 99% scrape-операций StackOverflow выполняются быстрее этого значения
+# Визуализация: Line chart
+histogram_quantile(0.99, rate(request_duration_ms_total_bucket{app="scrapper", scope="external_source", scope_type="stackoverflow.com"}[5m])) * 1000
+
+# 9. Перцентили обработки команд в Bot - p50
+# Описание: 50% команд бота обрабатываются быстрее этого значения
+# Визуализация: Line chart
+# Лейблы: app=bot
+histogram_quantile(0.50, rate(command_duration_ms_total_bucket{app="bot"}[5m])) * 1000
+
+# 10. Перцентили обработки команд в Bot - p95
+# Описание: 95% команд бота обрабатываются быстрее этого значения
+# Визуализация: Line chart
+histogram_quantile(0.95, rate(command_duration_ms_total_bucket{app="bot"}[5m])) * 1000
+
+# 11. Перцентили обработки команд в Bot - p99
+# Описание: 99% команд бота обрабатываются быстрее этого значения
+# Визуализация: Line chart
+histogram_quantile(0.99, rate(command_duration_ms_total_bucket{app="bot"}[5m])) * 1000
+
+# 12. Количество запросов к боту по командам
+# Описание: Количество запросов к боту в Telegram с разбивкой по типам команд
+# Визуализация: Line chart
+# Лейблы: command (start, help, track, untrack, list, cancel, unknown)
+rate(command_requests_total{app="bot"}[5m])
+
+# 13. Количество отправленных нотификаций
+# Описание: Количество отправленных уведомлений пользователям в секунду
+# Визуализация: Line chart
+# Лейблы: app=bot
+rate(sent_notification_total{app="bot"}[5m])
+
+================================================================================
+# ДОПОЛНИТЕЛЬНЫЕ ЗАПРОСЫ ДЛЯ АНАЛИЗА
+================================================================================
+
+# 14. Общее количество запросов за последний час
+# Описание: Суммарное количество HTTP запросов за последний час
+sum(increase(http_requests_total{app="$app_name"}[1h]))
+
+# 15. Процент ошибок (Error Rate)
+# Описание: Доля ошибочных запросов (5xx) от общего количества в процентах
+rate(http_requests_total{app="$app_name", status=~"5.."}[5m]) 
+/ 
+rate(http_requests_total{app="$app_name"}[5m]) 
+* 100
+
+# 16. Доступность сервиса (Availability)
+# Описание: Процент успешных запросов (не 5xx) от общего количества
+1 - (
+  rate(http_requests_total{app="$app_name", status=~"5.."}[5m]) 
+  / 
+  rate(http_requests_total{app="$app_name"}[5m])
+)
+
+# 17. Среднее время ответа
+# Описание: Среднее время обработки запроса в секундах
+rate(http_request_duration_seconds_sum{app="$app_name"}[5m]) 
+/ 
+rate(http_request_duration_seconds_count{app="$app_name"}[5m])
+
+# 18. Количество ссылок на мониторинге (по доменам)
+# Описание: Детализация количества отслеживаемых ссылок по доменам
+links_on_track_total{app="scrapper"} by (tracked_source)
+
+# 19. Топ команд бота по частоте использования
+# Описание: Рейтинг команд бота по количеству вызовов за последний час
+topk(5, sum(increase(command_requests_total{app="bot"}[1h])) by (command))
+
+# 20. Скорость потребления памяти
+# Описание: Скорость изменения использования памяти (байт/сек)
+deriv(process_working_set_bytes{app="$app_name"}[5m])
+
+================================================================================
+# ЗАПРОСЫ ДЛЯ АЛЕРТОВ (Grafana Alerting)
+================================================================================
+
+# 21. Алерт на высокое потребление RAM
+# Описание: Срабатывает, когда потребление RAM превышает 500MB
+# Threshold: > 524288000 (500MB)
+process_working_set_bytes{app="$app_name"} > 524288000
+
+# 22. Алерт на высокий Error Rate
+# Описание: Срабатывает, когда доля ошибок превышает 5%
+rate(http_requests_total{app="$app_name", status=~"5.."}[5m]) 
+/ 
+rate(http_requests_total{app="$app_name"}[5m]) 
+> 0.05
+
+# 23. Алерт на высокую задержку (p95)
+# Описание: Срабатывает, когда 95-й перцентиль превышает 2 секунды
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{app="$app_name"}[5m])) > 2
+
+# 24. Алерт на недоступность сервиса
+# Описание: Срабатывает, когда сервис не отвечает (down)
+up{job="$app_name"} == 0
+
+# 25. Алерт на отсутствие уведомлений
+# Описание: Срабатывает, если бот не отправлял уведомления более 30 минут
+increase(sent_notification_total{app="bot"}[30m]) == 0
+
+================================================================================
+# ИНФОРМАЦИОННЫЕ ЗАПРОСЫ
+================================================================================
+
+# 26. Статус всех target'ов
+# Описание: Показывает статус всех scrape-целей Prometheus
+up
+
+# 27. Время до перезапуска контейнера (uptime)
+# Описание: Время работы процесса с момента последнего запуска
+time() - process_start_time_seconds{app="$app_name"}
+
+# 28. Количество потоков
+# Описание: Количество активных потоков процесса
+process_threads{app="$app_name"}
+
+# 29. Количество открытых файловых дескрипторов
+# Описание: Количество открытых файловых дескрипторов процесса
+process_open_fds{app="$app_name"}
+
+# 30. Версия .NET runtime
+# Описание: Информация о версии .NET runtime
+dotnet_info{app="$app_name"}

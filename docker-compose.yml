@@ -1,0 +1,296 @@
+services:
+  scrapper:
+    build:
+      context: .
+      dockerfile: src/LinkTracker.Scrapper/Dockerfile
+    container_name: linktracker-scrapper
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+    networks:
+      - linktracker-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  bot:
+    build:
+      context: .
+      dockerfile: src/LinkTracker.Bot/Dockerfile
+    container_name: linktracker-bot
+    ports:
+      - "5000:80"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:80
+      - Scrapper__BaseUrl=http://scrapper:8080
+    dns:
+    - 8.8.8.8 
+    - 8.8.4.4
+    depends_on:
+      - scrapper
+    networks:
+      - linktracker-network
+    env_file:
+      - src/LinkTracker.Bot/.env
+
+  ai-agent:
+    build:
+      context: .
+      dockerfile: src/LinkTracker.AiAgent/Dockerfile
+    container_name: linktracker-ai-agent
+    ports:
+      - "8081:80"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:80
+      - Scrapper__BaseUrl=http://scrapper:8080
+      - Bot__BaseUrl=http://bot:5000
+    depends_on:
+      - scrapper
+    networks:
+      - linktracker-network
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: chats_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - linktracker-network
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    restart: always
+    depends_on:
+      - postgres
+    environment:
+      PGADMIN_DEFAULT_EMAIL: postgres@localhost.com
+      PGADMIN_DEFAULT_PASSWORD: postgres
+    ports:
+      - "5050:80"
+    networks:
+      - linktracker-network
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+  liquibase-migrations:
+    image: liquibase/liquibase:4.29
+    depends_on:
+      - postgres
+    command:
+      - --searchPath=/changesets
+      - --changelog-file=master.xml
+      - --url=jdbc:postgresql://postgres:5432/chats_db
+      - --username=postgres
+      - --password=postgres
+      - update
+    networks:
+      - linktracker-network   
+    volumes:
+      - ./migrations:/changesets
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    networks:
+      - linktracker-network
+
+  kafka-1:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - linktracker-network
+
+  kafka-2:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-2
+    depends_on:
+      - zookeeper
+    ports:
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9093"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - linktracker-network
+
+  kafka-3:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-3
+    depends_on:
+      - zookeeper
+    ports:
+      - "9094:9094"
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9094
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9094"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - linktracker-network
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - kafka-1
+    entrypoint: [ "/bin/sh", "-c" ]
+    command: >
+      "
+      kafka-topics --create
+      --topic link.raw-updates
+      --bootstrap-server kafka-1:9092
+      --replication-factor 3
+      --partitions 3
+
+      kafka-topics --create
+      --topic link.processed-updates
+      --bootstrap-server kafka-1:9092
+      --replication-factor 3
+      --partitions 3
+      "
+    networks:
+      - linktracker-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8090:8080"
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: linktracker-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:9092,kafka-2:9093,kafka-3:9094
+    networks:
+      - linktracker-network
+
+  valkey-node-1:
+    image: valkey/valkey:latest
+    container_name: valkey-node-1
+    ports:
+      - "6379:6379"
+    networks:
+      - linktracker-network
+
+  valkey-node-2:
+    image: valkey/valkey:latest
+    container_name: valkey-node-2
+    ports:
+      - "6380:6379"
+    networks:
+      - linktracker-network
+
+  valkey-node-3:
+    image: valkey/valkey:latest
+    container_name: valkey-node-3
+    ports:
+      - "6381:6379"
+    networks:
+      - linktracker-network
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - linktracker-network
+    depends_on:
+      - scrapper
+      - bot
+      - ai-agent
+
+  grafana:
+    image: grafana/grafana-oss:11.0.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    networks:
+      - linktracker-network
+    depends_on:
+      - prometheus
+
+networks:
+  linktracker-network:
+    driver: bridge
+
+volumes:
+  pg_data:
+  pgadmin_data:
+  prometheus_data:
+  grafana_data:
